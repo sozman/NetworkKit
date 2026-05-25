@@ -7,15 +7,15 @@ Lightweight, protocol-driven HTTP networking library. Built with Swift 6.
 - Swift 6+
 
 ## Core Components
-- `Endpoint` — API endpoint tanımlamak için protocol
+- `Endpoint` — Protocol for defining API endpoints
 - `HttpMethod` — GET, POST, PUT, DELETE, PATCH
-- `NetworkService` — HTTP isteklerini yöneten servis
-- `NetworkError` — Hata durumları
+- `NetworkService` — Service that handles HTTP requests
+- `NetworkError` — Error cases
 
 ## Usage
 
 ```swift
-// 1. Endpoint tanımla
+// 1. Define an endpoint
 enum UserRouter: Endpoint {
     case getUser(id: String)
     
@@ -26,7 +26,7 @@ enum UserRouter: Endpoint {
     var headers: [String: String]? { nil }
 }
 
-// 2. İstek at
+// 2. Make a request
 let service = NetworkService()
 let user: User = try await service.request(endpoint: UserRouter.getUser(id: "1"))
 ```
