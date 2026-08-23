@@ -8,15 +8,20 @@
 import Foundation
 
 public protocol NetworkServiceProtocol: Sendable {
+    associatedtype ErrorModel: Decodable
+
     func request<T: Decodable & Sendable>(endpoint: any Endpoint) async throws -> T
     func requestWithoutResponse(endpoint: any Endpoint) async throws
 }
 
-public final class NetworkService: NetworkServiceProtocol {
-
+public final class NetworkService<ErrorModel: Decodable>: NetworkServiceProtocol {
     private let urlSession: URLSession
 
     public init(urlSession: URLSession = .shared) {
+        self.urlSession = urlSession
+    }
+
+    public init(urlSession: URLSession = .shared) where ErrorModel == Never {
         self.urlSession = urlSession
     }
 
@@ -63,8 +68,14 @@ private extension NetworkService {
         case 200...299:
             return
         default:
-            if let backendError = try? JSONDecoder().decode(NetworkErrorResponse.self, from: data) {
+            if ErrorModel.self == Never.self,
+               let backendError = try? JSONDecoder().decode(NetworkErrorResponse.self, from: data) {
                 throw NetworkError.backendMessage(backendError.error.message)
+            }
+
+            if let backendError = try? JSONDecoder().decode(ErrorModel.self, from: data),
+               let backendError = backendError as? any Error {
+                throw backendError
             }
 
             switch httpResponse.statusCode {

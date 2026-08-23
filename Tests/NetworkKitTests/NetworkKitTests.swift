@@ -12,8 +12,52 @@ private struct MockResponse: Codable, Sendable, Equatable {
     let name: String
 }
 
+private struct CustomErrorResponse: Decodable, Error, Sendable, Equatable {
+    let code: Int
+    let detail: String
+}
+
+private final class ErrorURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let url = request.url,
+              let response = HTTPURLResponse(
+                url: url,
+                statusCode: 422,
+                httpVersion: nil,
+                headerFields: nil
+              ) else {
+            client?.urlProtocol(self, didFailWithError: NetworkError.invalidResponse)
+            return
+        }
+
+        let data = if request.url?.path == "/default-error" {
+            Data(#"{"error":{"message":"Default error message"}}"#.utf8)
+        } else {
+            Data(#"{"code":1001,"detail":"Invalid request"}"#.utf8)
+        }
+
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(
+            self,
+            didLoad: data
+        )
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 // MARK: - Mock NetworkService
 private actor MockNetworkService: NetworkServiceProtocol {
+    typealias ErrorModel = MockResponse
     
     enum Behavior {
         case success(Data)
@@ -121,6 +165,39 @@ final class NetworkServiceTests: XCTestCase {
         await XCTAssertThrowsNetworkError(
             try await sut.request(endpoint: MockEndpoint()) as MockResponse,
             expected: .backendMessage("API key is invalid")
+        )
+    }
+
+    func testRequestThrowsProvidedCustomErrorModel() async {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ErrorURLProtocol.self]
+        let urlSession = URLSession(configuration: configuration)
+        let sut = NetworkService<CustomErrorResponse>(
+            urlSession: urlSession
+        )
+
+        do {
+            let _: MockResponse = try await sut.request(endpoint: MockEndpoint())
+            XCTFail("CustomErrorResponse fırlatılması bekleniyordu")
+        } catch let error as CustomErrorResponse {
+            XCTAssertEqual(
+                error,
+                CustomErrorResponse(code: 1001, detail: "Invalid request")
+            )
+        } catch {
+            XCTFail("Beklenmedik hata türü: \(error)")
+        }
+    }
+
+    func testRequestThrowsDefaultErrorWithoutCustomErrorModel() async {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ErrorURLProtocol.self]
+        let urlSession = URLSession(configuration: configuration)
+        let sut = NetworkService(urlSession: urlSession)
+
+        await XCTAssertThrowsNetworkError(
+            try await sut.request(endpoint: MockEndpoint(path: "/default-error")) as MockResponse,
+            expected: .backendMessage("Default error message")
         )
     }
 }
